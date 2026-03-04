@@ -1,0 +1,170 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+:root {
+  /* Light Mode Defaults */
+  --bg-chat: #ffffff;
+  --border-color: #e4e4e7;
+    /* zinc-200 */
+      --text-primary: #18181b;
+      /* zinc-900 */
+      --text-secondary: #71717a;
+      /* zinc-500 */
+      --bg-message-agent: #f4f4f5;
+      /* zinc-100 */
+
+    /* A2UI Neutral Palette (Zinc) */
+      --n-0: #09090b;
+      /* Zinc-950 */
+      --n-5: #18181b;
+      /* Zinc-900 */
+      --n-10: #18181b;
+      /* Zinc-900 (Text Light) */
+      --n-20: #27272a;
+      /* Zinc-800 */
+      --n-25: #27272a;
+      --n-30: #3f3f46;
+      /* Zinc-700 */
+      --n-35: #3f3f46;
+      --n-40: #52525b;
+      /* Zinc-600 */
+      --n-50: #71717a;
+      /* Zinc-500 */
+      --n-60: #a1a1aa;
+      /* Zinc-400 */
+      --n-70: #d4d4d8;
+      /* Zinc-300 */
+      --n-80: #e4e4e7;
+      /* Zinc-200 */
+      --n-90: #f4f4f5;
+      /* Zinc-100 (Text Dark) */
+      --n-95: #fafafa;
+      /* Zinc-50 */
+      --n-96: #fafafa;
+      --n-98: #ffffff;
+      --n-99: #ffffff;
+      --n-100: #fafafa;
+      /* Zinc-50 (Light Grey Background) */
+    
+      /* A2UI Primary Palette (Indigo) */
+      --p-0: #312e81;
+      /* Indigo-900 */
+      --p-10: #3730a3;
+      /* Indigo-800 */
+      --p-20: #4338ca;
+      /* Indigo-700 */
+      --p-30: #4f46e5;
+      /* Indigo-600 */
+      --p-40: #6366f1;
+      /* Indigo-500 */
+      --p-50: #818cf8;
+      /* Indigo-400 */
+      --p-60: #a5b4fc;
+      /* Indigo-300 */
+      --p-70: #c7d2fe;
+      /* Indigo-200 */
+      --p-80: #e0e7ff;
+      /* Indigo-100 */
+      --p-90: #eef2ff;
+      /* Indigo-50 */
+      --p-95: #f5f3ff;
+      --p-98: #ffffff;
+      --p-99: #ffffff;
+      --p-100: #ffffff;
+  /* Material Icon Fixes */
+  --mdc-icon-font: 'Material Icons';
+}
+
+/* Dark Mode Overrides */
+.dark {
+  color-scheme: dark;
+    --bg-chat: #18181b;
+      /* zinc-900 */
+      --border-color: #27272a;
+      /* zinc-800 */
+      --text-primary: #f4f4f5;
+      /* zinc-100 */
+      --text-secondary: #a1a1aa;
+      /* zinc-400 */
+      --bg-message-agent: #27272a;
+      /* zinc-800 */
+/* A2UI Dark Mode Fixes */
+  /* Re-map n0 (Card Bg target) to Zinc-800 so cards pop from Zinc-900 background */
+  --n-0: #27272a;
+  /* Re-map p70 (Button Bg target) to Indigo-600 so buttons stay saturated */
+  --p-70: #4f46e5;
+}
+
+body {
+  background-color: var(--bg-chat);
+  color: var(--text-primary);
+  transition: background-color 0.3s, color 0.3s;
+}
+/* Force MatIcon to use the correct font family if it's not picking it up */
+.mat-icon {
+  font-family: 'Material Icons' !important;
+}
+
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-feature-settings: 'liga';
+  font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+}
+/* Fix for native date/time pickers in dark mode */
+:root {
+  color-scheme: light;
+}
+
+.dark {
+  color-scheme: dark;
+}
+
+/* Ensure calendar picker indicator is visible in dark mode */
+.dark input::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+  cursor: pointer;
+}
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg-chat);
+  background-color: var(--bg-chat);
+    color: var(--text-primary);
+}
+
+/* Force white text for tokens that need it (e.g. Buttons) */
+.type-white-forced {
+  color: #ffffff !important;
+}
+
+/* Button Interaction: 0.75 opacity default, 1.0 on hover */
+.btn-interactive {
+  opacity: 0.75;
+  transition: opacity 0.2s ease-in-out;
+}
+
+.btn-interactive:hover {
+  opacity: 1;
+}
+
+/* Force .color-c-n10 to be adaptive and pure white in dark mode */
+.color-c-n10 {
+  color: light-light(var(--n-10), #ffffff) !important;
+}

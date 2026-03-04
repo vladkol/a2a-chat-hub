@@ -1,0 +1,5 @@
+{
+  "name": "A2A Chat Client",
+  "description": "An AI chat application supporting A2A agents, A2UI, and Google Firebase Authentication.",
+  "requestFramePermissions": []
+}
