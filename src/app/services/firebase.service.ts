@@ -13,6 +13,7 @@ export class FirebaseService {
 
   public currentUser = signal<User | null>(null);
   public isInitialized = signal<boolean>(false);
+  public isAuthEnabled = signal<boolean>(true);
 
   async initialize() {
     if (!isPlatformBrowser(this.platformId)) {
@@ -25,7 +26,8 @@ export class FirebaseService {
       const config = await response.json();
 
       if (!config.apiKey) {
-        console.warn('Firebase config is missing. Please set environment variables.');
+        console.warn('Firebase config is missing. Authentication disabled.');
+        this.isAuthEnabled.set(false);
         this.isInitialized.set(true);
         return;
       }

@@ -211,7 +211,9 @@ if [[ "${EXISTING_ALLOWED_HOSTS}" == "" ]]; then
     --update-env-vars "^:^ALLOWED_HOSTS=${ALLOWED_HOSTS}"
 fi
 
-source ./scripts/update_auth_domains.sh
+if [[ FIREBASE_API_KEY != "" ]]; then
+    source ./scripts/update_auth_domains.sh
+fi
 
 echo "✅ Deployment completed successfully."
 echo "👉 Service URL: https://${DEFAULT_SERVICE_HOSTNAME}"

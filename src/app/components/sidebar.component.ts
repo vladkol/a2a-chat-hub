@@ -91,20 +91,22 @@ import { FormsModule } from '@angular/forms';
           </button>
         </div>
 
-        <div class="flex items-center justify-between mt-2">
-          <div class="flex items-center space-x-3 overflow-hidden">
-            <img [src]="firebase.currentUser()?.photoURL || 'https://picsum.photos/seed/user/40/40'"
-                 alt="User"
-                 class="w-8 h-8 rounded-full shrink-0"
-                 referrerpolicy="no-referrer">
-            <div class="truncate text-sm text-zinc-700 dark:text-zinc-300">
-              {{ firebase.currentUser()?.displayName || 'User' }}
+        @if (firebase.isAuthEnabled()) {
+          <div class="flex items-center justify-between mt-2">
+            <div class="flex items-center space-x-3 overflow-hidden">
+              <img [src]="firebase.currentUser()?.photoURL || 'https://picsum.photos/seed/user/40/40'"
+                   alt="User"
+                   class="w-8 h-8 rounded-full shrink-0"
+                   referrerpolicy="no-referrer">
+              <div class="truncate text-sm text-zinc-700 dark:text-zinc-300">
+                {{ firebase.currentUser()?.displayName || 'User' }}
+              </div>
             </div>
+            <button (click)="firebase.logout()" class="p-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg text-zinc-400 transition-colors" title="Sign out">
+              <mat-icon class="text-[20px] w-[20px] h-[20px]">logout</mat-icon>
+            </button>
           </div>
-          <button (click)="firebase.logout()" class="p-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg text-zinc-400 transition-colors" title="Sign out">
-            <mat-icon class="text-[20px] w-[20px] h-[20px]">logout</mat-icon>
-          </button>
-        </div>
+        }
       </div>
     </div>
 

@@ -12,11 +12,14 @@ This whole project is **95% vibe-coded** in [Antigravity with Gemini 3.1 Pro](ht
 
 ## What about it?
 
+![Chat Hub](images/screenshot.png)
+
 For developers building the next generation of AI agents, standardizing communication is key. This app serves as a ready-to-use frontend for your agents:
 
 - **Agent2Agent (A2A) Interoperability**: Out-of-the-box support for the A2A protocol with streaming.
 - **Agent-to-UI (A2UI) Powered**: Go beyond plain text. Render rich, agent-driven UI components directly in the chat using the native `@a2ui/angular` SDK integration.
 - **Plug-and-Play**: Simply provide the URL of your A2A-compatible agent endpoint, and start interacting immediately.
+- **Secure and Scalable**: Secure your chats with Google Authentication using Firebase, and deploy in a few steps to [Google Cloud Run](https://cloud.google.com/run)!
 
 As of today, the app uses [A2A **v0.3.0**](https://a2a-protocol.org/v0.3.0/) and [A2UI **v0.8**](https://a2ui.org/specification/v0.8-a2ui).
 
@@ -40,10 +43,11 @@ You need to have the following tools installed:
 - [`gcloud` (Google Cloud SDK)](https://cloud.google.com/sdk)
 - [`node` and `npm` (Node.js and its package manager)](https://nodejs.org/)
 
-
 ### Deployment
 
-At first, you need to create a Firebase project:
+**[Optional] Firebase Authentication**:
+
+You deploy the app to Cloud Run with Firebase Authentication or without it. If you would like to use Authentication (highly recommend that!), you need to create a Firebase project first.
 
 1. In you web browser, go to [console.firebase.google.com](https://console.firebase.google.com/).
 2. Create or select a Google Cloud project.
@@ -76,11 +80,15 @@ At first, you need to create a Firebase project:
    FIREBASE_APP_ID=YOUR_APP_ID
    ```
 
-Before deploying, ensure you have the appropriate Firebase and Google Cloud configurations set.
+**Deployment without Firebase Authentication**:
 
-If you are limiting access by email domain, you can also set `ALLOWED_DOMAINS_EMAILS` variable in `.env` file (e.g., `user@example.com, mycompany.com`).
+If Firebase is not used, Cloud Run deployment strictly requires the `GOOGLE_CLOUD_REGION` environment variable to be defined manually in your `.env` file for proper routing.
 
-Now, deploy the configured appto Cloud Run:
+**Deployment Command**:
+
+If you want to limit access by email domain, you can set `ALLOWED_DOMAINS_EMAILS` variable in `.env` file (e.g., `user@example.com, mycompany.com`).
+
+Now, deploy the configured app to Cloud Run:
 
 ```bash
 npm run deploy

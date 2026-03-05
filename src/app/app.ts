@@ -10,7 +10,7 @@ import { FirebaseService } from './services/firebase.service';
   selector: 'app-root',
   imports: [LoginComponent, SidebarComponent, ChatAreaComponent, NewConversationModalComponent, ManageAgentsModalComponent],
   template: `
-    @if (firebase.currentUser()) {
+    @if (!firebase.isAuthEnabled() || firebase.currentUser()) {
       <div class="flex h-[100dvh] w-full overflow-hidden bg-zinc-950 font-sans relative">
         <app-sidebar></app-sidebar>
         <app-chat-area></app-chat-area>

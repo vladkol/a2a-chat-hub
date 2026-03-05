@@ -84,30 +84,42 @@ app.use('/api/proxy', express.json({ limit: '10mb' }), async (req, res) => {
     const idToken = await getIdToken(targetUrl);
     const targetAuthHeader = idToken ? `Bearer ${idToken}` : undefined;
 
-    // Get current user's email (as authenticated with Firebase Auth)
-    const originalAuthToken = req.headers.authorization?.split('Bearer ')[1];
-    if (!originalAuthToken) {
-      res.status(401).send('Missing authorization token');
-      return;
-    }
     let userEmail = "";
-    try {
-      const decodedToken = await admin.auth().verifyIdToken(originalAuthToken);
-      userEmail = decodedToken.email || "";
-    } catch (error) {
-      console.error('Failed to verify id token:', error);
-      res.status(401).send('Invalid authorization token');
-      return;
+
+    // Check if Firebase Auth is enabled on server
+    const authEnabled = !!process.env['FIREBASE_API_KEY'];
+
+    if (authEnabled) {
+      // Get current user's email (as authenticated with Firebase Auth)
+      const originalAuthToken = req.headers.authorization?.split('Bearer ')[1];
+      if (!originalAuthToken) {
+        res.status(401).send('Missing authorization token');
+        return;
+      }
+
+      try {
+        const decodedToken = await admin.auth().verifyIdToken(originalAuthToken);
+        userEmail = decodedToken.email || "";
+      } catch (error) {
+        console.error('Failed to verify id token:', error);
+        res.status(401).send('Invalid authorization token');
+        return;
+      }
+    }
+
+    const headers: Record<string, string> = {
+      'Content-Type': req.headers['content-type'] || 'application/json',
+      ...(targetAuthHeader ? { 'Authorization': targetAuthHeader } : {}),
+      ...(req.headers['x-a2a-extensions'] ? { 'X-A2A-Extensions': req.headers['x-a2a-extensions'] as string } : {})
+    };
+
+    if (userEmail) {
+      headers['X-Goog-Authenticated-User-Email'] = userEmail;
     }
 
     const fetchOptions: RequestInit = {
       method: req.method,
-      headers: {
-        'Content-Type': req.headers['content-type'] || 'application/json',
-        'X-Goog-Authenticated-User-Email': userEmail,
-        ...(targetAuthHeader ? { 'Authorization': targetAuthHeader } : {}),
-        ...(req.headers['x-a2a-extensions'] ? { 'X-A2A-Extensions': req.headers['x-a2a-extensions'] as string } : {})
-      },
+      headers,
     };
 
     if (req.method !== 'GET' && req.method !== 'HEAD') {
