@@ -81,8 +81,13 @@ app.use('/api/proxy', express.json({ limit: '10mb' }), async (req, res) => {
   }
 
   try {
-    const idToken = await getIdToken(targetUrl);
-    const targetAuthHeader = idToken ? `Bearer ${idToken}` : undefined;
+    const skipAppAuth = req.headers['x-skip-app-auth'] === 'true';
+    const idToken = skipAppAuth ? null : await getIdToken(targetUrl);
+    let targetAuthHeader = idToken ? `Bearer ${idToken}` : undefined;
+
+    if (req.headers['x-agent-authorization']) {
+      targetAuthHeader = req.headers['x-agent-authorization'] as string;
+    }
 
     let userEmail = "";
 

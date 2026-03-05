@@ -80,6 +80,26 @@ export class FirebaseService {
     }
   }
 
+  async getAgentAccessToken(scopes: string[]): Promise<string | null> {
+    if (!this.auth || !this.auth.currentUser) return null;
+    const provider = new GoogleAuthProvider();
+    for (const scope of scopes) {
+      provider.addScope(scope);
+    }
+    try {
+      // Re-auth silently if scopes already granted, or pops up seamlessly.
+      const result = await signInWithPopup(this.auth, provider);
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      if (credential && credential.accessToken) {
+        return credential.accessToken;
+      }
+      return null;
+    } catch (error) {
+      console.error('Failed to get agent access token', error);
+      return null;
+    }
+  }
+
   async logout() {
     if (!this.auth) return;
     try {
