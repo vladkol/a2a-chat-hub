@@ -45,9 +45,9 @@ You need to have the following tools installed:
 
 ### Deployment
 
-**[Optional] Firebase Authentication**:
+**[Optional] Google Account Authentication with Firebase**:
 
-You deploy the app to Cloud Run with Firebase Authentication or without it. If you would like to use Authentication (highly recommend that!), you need to create a Firebase project first.
+You deploy the app to Cloud Run with Authentication or without it. If you would like to use Authentication (highly recommend that!), you need to create a Firebase project first.
 
 1. In you web browser, go to [console.firebase.google.com](https://console.firebase.google.com/).
 2. Create or select a Google Cloud project.
@@ -80,7 +80,7 @@ You deploy the app to Cloud Run with Firebase Authentication or without it. If y
    FIREBASE_APP_ID=YOUR_APP_ID
    ```
 
-**Deployment without Firebase Authentication**:
+**Deployment without Authentication**:
 
 If Firebase is not used, Cloud Run deployment strictly requires the `GOOGLE_CLOUD_REGION` environment variable to be defined manually in your `.env` file for proper routing.
 
