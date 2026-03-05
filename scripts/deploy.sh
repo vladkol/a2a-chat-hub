@@ -194,4 +194,4 @@ fi
 source ./scripts/update_auth_domains.sh
 
 echo "✅ Deployment completed successfully."
-echo "👉 Service URL: ${SERVICE_URL}"
+echo "👉 Service URL: https://${DEFAULT_SERVICE_HOSTNAME}"
