@@ -59,6 +59,17 @@ import { ThemeService } from '../services/theme.service';
                         [class]="msg.role === 'user'
                           ? 'bg-indigo-600 text-white rounded-2xl rounded-tr-sm px-4 py-2.5 shadow-sm self-end max-w-full'
                           : 'bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-200 rounded-2xl rounded-tl-sm px-4 py-2.5 shadow-sm w-full md:w-auto'">
+
+                        @if (msg.authRequired) {
+                          <div class="mb-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/50 rounded-lg p-3 flex items-start space-x-3">
+                            <mat-icon class="text-amber-500 mt-0.5">lock</mat-icon>
+                            <div class="flex-1">
+                              <div class="text-sm font-semibold text-amber-800 dark:text-amber-400">Authentication Required</div>
+                              <div class="text-[13px] text-amber-700 dark:text-amber-500 mt-1 leading-relaxed">The agent requires additional credentials to continue. Please complete the authorization below.</div>
+                            </div>
+                          </div>
+                        }
+
                         <div class="font-sans text-[15px] leading-relaxed markdown-content" [innerHTML]="msg.content | markdown"></div>
                       </div>
                     }
@@ -68,7 +79,7 @@ import { ThemeService } from '../services/theme.service';
                         <div class="bg-zinc-50 dark:bg-zinc-900 px-3 py-2 border-b border-zinc-200 dark:border-zinc-800 flex items-center space-x-2">
                           <mat-icon class="text-zinc-400 text-[18px] w-[18px] h-[18px]">insert_drive_file</mat-icon>
                           <div class="flex-1 min-w-0">
-                            <div class="text-[13px] font-medium text-zinc-700 dark:text-zinc-300 truncate">{{ art.name || 'Artifact' }}</div>
+                            <div class="text-[13px] font-medium text-zinc-700 dark:text-zinc-300 truncate">{{ art.name || 'Document' }}</div>
                             @if (art.description) {
                               <div class="text-[11px] text-zinc-500 truncate">{{ art.description }}</div>
                             }
@@ -79,6 +90,15 @@ import { ThemeService } from '../services/theme.service';
                         </div>
                       </div>
                     }
+
+                    @for (surfaceId of msg.surfaceIds || []; track surfaceId) {
+                      @if (getSurface(surfaceId); as surface) {
+                        <div class="mt-3 w-[min(100%,_calc(100vw_-_3rem))] max-w-[800px] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden shadow-sm">
+                           <a2ui-surface [surfaceId]="surfaceId" [surface]="surface"/>
+                        </div>
+                      }
+                    }
+
                     <div class="text-[11px] text-zinc-500 mt-1.5 font-mono px-1 flex-shrink-0" [class.self-end]="msg.role === 'user'">
                       {{ msg.timestamp | date:'shortTime' }}
                     </div>
@@ -89,12 +109,7 @@ import { ThemeService } from '../services/theme.service';
             }
           }
 
-          <!-- A2UI Surfaces -->
-          <div class="a2ui-surfaces-container mt-4 space-y-4">
-            @for (entry of chat.processor.getSurfaces(); track entry[0]) {
-              <a2ui-surface [surfaceId]="entry[0]" [surface]="entry[1]"/>
-            }
-          </div>
+          <!-- Surfaces dynamically inline with messages above -->
 
           @if (chat.isTyping()[chat.currentConversation()!.id]) {
             <div class="flex justify-start" #mainThinkingBubble>
@@ -102,10 +117,19 @@ import { ThemeService } from '../services/theme.service';
                 <div class="w-8 h-8 rounded-full bg-indigo-50 dark:bg-indigo-500/20 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shrink-0 mt-1">
                   <mat-icon class="text-[18px] w-[18px] h-[18px]">smart_toy</mat-icon>
                 </div>
-                <div class="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-200 rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm flex items-center space-x-1.5">
-                  <div class="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-bounce" style="animation-delay: 0ms"></div>
-                  <div class="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-bounce" style="animation-delay: 150ms"></div>
-                  <div class="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-bounce" style="animation-delay: 300ms"></div>
+                <div class="flex items-center space-x-2 text-zinc-400 dark:text-zinc-500 text-[13px] italic px-4 py-2">
+                  <div class="flex space-x-1">
+                    <div class="w-1.5 h-1.5 bg-current rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+                    <div class="w-1.5 h-1.5 bg-current rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+                    <div class="w-1.5 h-1.5 bg-current rounded-full animate-bounce"></div>
+                  </div>
+                  <span>Agent is typing...</span>
+
+                  <button (click)="chat.cancelTask(chat.currentConversation()!.id)"
+                          class="ml-4 flex items-center space-x-1 text-red-500 hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 px-2 py-0.5 rounded transition-colors cursor-pointer ml-auto float-right">
+                    <mat-icon class="text-[16px] w-[16px] h-[16px]">stop</mat-icon>
+                    <span class="font-medium text-xs">Stop</span>
+                  </button>
                 </div>
               </div>
             </div>
@@ -127,36 +151,39 @@ import { ThemeService } from '../services/theme.service';
                 }
               </div>
             }
-            <div class="relative flex items-end gap-3 w-full">
+            <div class="flex items-end gap-3 w-full">
               @if (chat.isTyping()[chat.currentConversation()!.id] && !isMainBubbleVisible()) {
-                 <div class="mb-3 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-200 rounded-2xl rounded-bl-sm px-3 py-2 shadow-sm flex items-center space-x-1.5 shrink-0">
+                 <div class="mb-3 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-200 rounded-2xl rounded-bl-sm px-3 py-2 shadow-sm flex items-center space-x-1.5 shrink-0 relative z-20">
                     <div class="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-bounce" style="animation-delay: 0ms"></div>
                     <div class="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-bounce" style="animation-delay: 150ms"></div>
                     <div class="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-bounce" style="animation-delay: 300ms"></div>
                  </div>
               }
 
-              <input type="file" multiple class="hidden" #fileInput (change)="onFilesSelected($event)">
-              <button
-                (click)="fileInput.click()"
-                class="absolute left-2 bottom-2 p-1.5 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors flex items-center justify-center cursor-pointer z-10 w-9 h-9">
-                <mat-icon class="text-[20px] w-[20px] h-[20px]">attach_file</mat-icon>
-              </button>
+              <div class="relative flex-1 flex items-end w-full">
+                <input type="file" multiple class="hidden" #fileInput (change)="onFilesSelected($event)">
+                <button
+                  (click)="fileInput.click()"
+                  class="absolute left-2 bottom-2 p-1.5 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors flex items-center justify-center cursor-pointer z-10 w-9 h-9">
+                  <mat-icon class="text-[20px] w-[20px] h-[20px]">attach_file</mat-icon>
+                </button>
 
-              <textarea
-                [(ngModel)]="newMessage"
-                (keydown.enter)="handleEnter($event)"
-                placeholder="Message..."
-                class="flex-1 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-700 rounded-xl pl-12 pr-12 py-3 text-[15px] focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 resize-none min-h-[52px] max-h-32 shadow-sm transition-all text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-500"
-                rows="1"
-                #messageInput
-              ></textarea>
-              <button
-                (click)="sendMessage()"
-                [disabled]="(!newMessage().trim() && attachments().length === 0) || chat.isTyping()[chat.currentConversation()!.id]"
-                class="absolute right-2 bottom-2 p-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-200 dark:disabled:bg-zinc-800 disabled:text-zinc-400 dark:disabled:text-zinc-600 text-white rounded-lg transition-colors flex items-center justify-center z-10 w-9 h-9 cursor-pointer">
-                <mat-icon class="text-[20px] w-[20px] h-[20px]">send</mat-icon>
-              </button>
+                <textarea
+                  [(ngModel)]="newMessage"
+                  (keydown.enter)="handleEnter($event)"
+                  placeholder="Message..."
+                  class="flex-1 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-700 rounded-xl pl-12 pr-12 py-3 text-[15px] focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 resize-none min-h-[52px] max-h-32 shadow-sm transition-all text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-500"
+                  rows="1"
+                  #messageInput
+                ></textarea>
+
+                <button
+                  (click)="sendMessage()"
+                  [disabled]="(!newMessage().trim() && attachments().length === 0) || chat.isTyping()[chat.currentConversation()!.id]"
+                  class="absolute right-2 bottom-2 p-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-200 dark:disabled:bg-zinc-800 disabled:text-zinc-400 dark:disabled:text-zinc-600 text-white rounded-lg transition-colors flex items-center justify-center z-10 w-9 h-9 cursor-pointer">
+                  <mat-icon class="text-[20px] w-[20px] h-[20px]">send</mat-icon>
+                </button>
+              </div>
             </div>
           </div>
           <div class="text-center mt-2 text-[11px] text-zinc-500 font-mono">
@@ -278,6 +305,14 @@ export class ChatAreaComponent {
   attachments = signal<File[]>([]);
 
   @ViewChild('scrollContainer') private scrollContainer!: ElementRef;
+
+  getSurface(surfaceId: string) {
+    if (!this.chat.processor) return null;
+    for (const [id, surface] of this.chat.processor.getSurfaces()) {
+      if (id === surfaceId) return surface;
+    }
+    return null;
+  }
 
   getAgentDescription(): string {
     const conv = this.chat.currentConversation();

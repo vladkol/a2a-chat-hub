@@ -33,8 +33,15 @@ elif [[ "${BUILD_ID}" == "" ]]; then
 fi
 
 if [[ "${GOOGLE_CLOUD_REGION}" == "" ]]; then
-    GOOGLE_CLOUD_REGION="us-west1"
-    echo "⚠️ WARNING: GOOGLE_CLOUD_REGION not set. Using default value: ${GOOGLE_CLOUD_REGION}"
+    GOOGLE_CLOUD_REGION=$(gcloud config get-value run/region -q)
+    if [[ "${GOOGLE_CLOUD_REGION}" == "" ]]; then
+        if [[ "${GOOGLE_CLOUD_LOCATION}" != "global" ]]; then
+            GOOGLE_CLOUD_REGION="${GOOGLE_CLOUD_LOCATION}"
+        else
+            GOOGLE_CLOUD_REGION="us-west1"
+        fi
+        echo "WARNING: Cannot get a configured Cloud Run region. Defaulting to ${GOOGLE_CLOUD_REGION}."
+    fi
 fi
 
 if [[ "${CLOUD_RUN_SERVICE_NAME}" == "" ]]; then
@@ -45,43 +52,55 @@ fi
 # Check requred variables:
 # FIREBASE_API_KEY, FIREBASE_AUTH_DOMAIN, FIREBASE_PROJECT_ID, FIREBASE_STORAGE_BUCKET, FIREBASE_MESSAGING_SENDER_ID, FIREBASE_APP_ID
 
-if [[ "${FIREBASE_API_KEY}" == "" ]]; then
-    echo "🛑 ERROR: FIREBASE_API_KEY not set."
-    exit 1
+if [[ "${FIREBASE_API_KEY}" != "" ]]; then
+    if [[ "${FIREBASE_API_KEY}" == "" ]]; then
+        echo "🛑 ERROR: FIREBASE_API_KEY not set."
+        exit 1
+    fi
+
+    if [[ "${FIREBASE_AUTH_DOMAIN}" == "" ]]; then
+        echo "🛑 ERROR: FIREBASE_AUTH_DOMAIN not set."
+        exit 1
+    fi
+
+    if [[ "${FIREBASE_PROJECT_ID}" == "" ]]; then
+        echo "🛑 ERROR: FIREBASE_PROJECT_ID not set."
+        exit 1
+    fi
+
+    if [[ "${FIREBASE_STORAGE_BUCKET}" == "" ]]; then
+        echo "🛑 ERROR: FIREBASE_STORAGE_BUCKET not set."
+        exit 1
+    fi
+
+    if [[ "${FIREBASE_MESSAGING_SENDER_ID}" == "" ]]; then
+        echo "🛑 ERROR: FIREBASE_MESSAGING_SENDER_ID not set."
+        exit 1
+    fi
+
+    if [[ "${FIREBASE_APP_ID}" == "" ]]; then
+        echo "🛑 ERROR: FIREBASE_APP_ID not set."
+        exit 1
+    fi
+    echo "🚀 Deploying to Cloud Run service ${CLOUD_RUN_SERVICE_NAME} with Firebase App ID ${FIREBASE_APP_ID} to Google Cloud Project ID ${FIREBASE_PROJECT_ID}"
+    GOOGLE_CLOUD_PROJECT=${FIREBASE_PROJECT_ID}
+elif [[ "${GOOGLE_CLOUD_PROJECT}" != "" ]]; then
+    echo "🚀 Deploying to Cloud Run service ${CLOUD_RUN_SERVICE_NAME} with Google Cloud Project ID ${GOOGLE_CLOUD_PROJECT}"
+else
+    GOOGLE_CLOUD_PROJECT=$(gcloud config get-value project -q)
+    if [[ "${GOOGLE_CLOUD_PROJECT}" == "" ]]; then
+        echo "🛑 ERROR: set GOOGLE_CLOUD_PROJECT or FIREBASE_API_KEY + FIREBASE_PROJECT_ID + FIREBASE_STORAGE_BUCKET + FIREBASE_MESSAGING_SENDER_ID + FIREBASE_APP_ID + FIREBASE_AUTH_DOMAIN."
+        exit 1
+    fi
+    echo "🚀 Deploying to Cloud Run service ${CLOUD_RUN_SERVICE_NAME} with Google Cloud Project ID ${GOOGLE_CLOUD_PROJECT}"
 fi
 
-if [[ "${FIREBASE_AUTH_DOMAIN}" == "" ]]; then
-    echo "🛑 ERROR: FIREBASE_AUTH_DOMAIN not set."
-    exit 1
-fi
-
-if [[ "${FIREBASE_PROJECT_ID}" == "" ]]; then
-    echo "🛑 ERROR: FIREBASE_PROJECT_ID not set."
-    exit 1
-fi
-
-if [[ "${FIREBASE_STORAGE_BUCKET}" == "" ]]; then
-    echo "🛑 ERROR: FIREBASE_STORAGE_BUCKET not set."
-    exit 1
-fi
-
-if [[ "${FIREBASE_MESSAGING_SENDER_ID}" == "" ]]; then
-    echo "🛑 ERROR: FIREBASE_MESSAGING_SENDER_ID not set."
-    exit 1
-fi
-
-if [[ "${FIREBASE_APP_ID}" == "" ]]; then
-    echo "🛑 ERROR: FIREBASE_APP_ID not set."
-    exit 1
-fi
-
-if [[ "${GOOGLE_CLOUD_PROJECT}" != "" && "${GOOGLE_CLOUD_PROJECT}" != ${FIREBASE_PROJECT_ID} ]]; then
+if [[ "${GOOGLE_CLOUD_PROJECT}" != "" && "${FIREBASE_PROJECT_ID}" != "" && "${GOOGLE_CLOUD_PROJECT}" != ${FIREBASE_PROJECT_ID} ]]; then
     echo "⚠️ WARNING: GOOGLE_CLOUD_PROJECT and FIREBASE_PROJECT_ID are set to different values. Using FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID}"
+    GOOGLE_CLOUD_PROJECT=${FIREBASE_PROJECT_ID}
 fi
 
-echo "🚀 Deploying to Cloud Run service ${CLOUD_RUN_SERVICE_NAME} with Firebase App ID ${FIREBASE_APP_ID}"
 
-GOOGLE_CLOUD_PROJECT=${FIREBASE_PROJECT_ID}
 
 # Enable APIs
 echo "Configuring Google APIs..."
@@ -154,6 +173,7 @@ gcloud beta run deploy "${CLOUD_RUN_SERVICE_NAME}" \
   --set-env-vars FIREBASE_APP_ID="${FIREBASE_APP_ID}" \
   --set-env-vars ^:^ALLOWED_HOSTS="${ALLOWED_HOSTS}" \
   --set-env-vars ^:^ALLOWED_DOMAINS_EMAILS="${ALLOWED_DOMAINS_EMAILS}" \
+  --set-env-vars ^#^DEFAULT_AGENTS="${DEFAULT_AGENTS}" \
   --no-allow-unauthenticated \
   --no-invoker-iam-check
 

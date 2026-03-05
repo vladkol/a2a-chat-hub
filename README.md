@@ -4,6 +4,8 @@
 
 Chat Hub is a lightweight, modern web application (built with Angular) tailored for AI agent developers who prioritize **interoperability**, seamless integration, and building rich interactive experiences using open standards.
 
+🚀 Deploy in a few steps to [Google Cloud Run](https://cloud.google.com/run)!
+
 ## Vibe-coding alert!
 
 This whole project is **95% vibe-coded** in [Antigravity with Gemini 3.1 Pro](https://antigravity.google/).

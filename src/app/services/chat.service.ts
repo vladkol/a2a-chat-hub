@@ -1,5 +1,6 @@
-import { Injectable, signal, inject } from '@angular/core';
-import { ClientFactory, JsonRpcTransportFactory, RestTransportFactory, DefaultAgentCardResolver } from '@a2a-js/sdk/client';
+import { Injectable, signal, inject, PLATFORM_ID } from '@angular/core';
+import { isPlatformBrowser } from '@angular/common';
+import { ClientFactory, JsonRpcTransportFactory, RestTransportFactory, DefaultAgentCardResolver, Client, RestTransport } from '@a2a-js/sdk/client';
 import { get as idbGet, set as idbSet } from 'idb-keyval';
 import { MessageSendParams, Part, AgentCard, Message as SdkMessage } from '@a2a-js/sdk';
 import { MessageProcessor } from '@a2ui/angular';
@@ -46,9 +47,11 @@ export interface Message {
   role: 'user' | 'agent';
   content: string;
   artifacts?: LocalArtifact[];
+  authRequired?: boolean;
   timestamp: number;
   events: A2AStreamEventData[]; // Source of truth for replay
   messageId?: string; // ID from the server/SDK for deduplication
+  surfaceIds?: string[];
 }
 
 const proxyFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
@@ -82,11 +85,15 @@ export class ChatService {
   public currentConversation = signal<Conversation | null>(null);
   public messages = signal<Record<string, Message[]>>({}); // Keyed by conversation.id
   public isTyping = signal<Record<string, boolean>>({}); // Keyed by conversation.id
+  private activeTaskIds = new Map<string, string>();
+  private activeTaskAbortControllers = new Map<string, AbortController>();
   public processor = inject(MessageProcessor);
+  private platformId = inject(PLATFORM_ID);
 
 
   constructor() {
     this.loadAgents();
+    this.loadDefaultAgents();
     this.loadConversations();
     this.loadMessages();
 
@@ -101,6 +108,32 @@ export class ChatService {
     });
 
 
+  }
+
+  private async loadDefaultAgents() {
+    if (isPlatformBrowser(this.platformId)) {
+      try {
+        const defaultsInitialized = await idbGet('defaultsInitialized');
+        if (!defaultsInitialized) {
+          const res = await fetch('/api/app-config');
+          const config = await res.json();
+          if (config.defaultAgents) {
+            const urls = config.defaultAgents.split(',').map((u: string) => u.trim()).filter((u: string) => u.length > 0);
+            for (const url of urls) {
+              try {
+                await this.addAgent(url);
+                console.log(`[A2A] Automatically loaded default agent: ${url}`);
+              } catch (e) {
+                console.error(`[A2A] Failed to automatically load default agent: ${url}`, e);
+              }
+            }
+          }
+          await idbSet('defaultsInitialized', true);
+        }
+      } catch (e) {
+        console.error('Failed to init defaults', e);
+      }
+    }
   }
 
   private async loadAgents() {
@@ -265,6 +298,51 @@ export class ChatService {
     if (navigator.onLine) {
       await this.resubscribeToConversation(conversation);
     }
+  }
+
+  async cancelTask(conversationId: string) {
+    const taskId = this.activeTaskIds.get(conversationId);
+
+    // We instantiate a throwaway client here just to fire the cancel RPC
+    if (taskId) {
+      const conv = this.conversations().find(c => c.id === conversationId);
+      const agents = this.agents();
+      const agent = agents.find(a => a.id === conv?.agentId);
+      if (agent) {
+        try {
+          const factory = new ClientFactory({
+            transports: [
+              new JsonRpcTransportFactory({ fetchImpl: proxyFetch }),
+              new RestTransportFactory({ fetchImpl: proxyFetch })
+            ],
+            cardResolver: new DefaultAgentCardResolver({ fetchImpl: proxyFetch })
+          });
+          let client: Client;
+
+          if (agent.card) {
+            client = await factory.createFromAgentCard(agent.card);
+          } else {
+            const normalizedAddress = this.normalizeUrl(agent.address);
+            const path = normalizedAddress.endsWith('.json') ? '' : undefined;
+            client = await factory.createFromUrl(normalizedAddress, path);
+          }
+          console.log(`[A2A] Cancelling task: ${taskId}`);
+          await client.cancelTask({ id: taskId });
+        } catch (e) {
+          console.error("Failed to cancel task on agent", e);
+        }
+      }
+    }
+
+    // Immediately abort the local read stream
+    const abortCtrl = this.activeTaskAbortControllers.get(conversationId);
+    if (abortCtrl) {
+      abortCtrl.abort();
+      this.activeTaskAbortControllers.delete(conversationId);
+    }
+
+    const isTypingMap = this.isTyping();
+    this.isTyping.set({ ...isTypingMap, [conversationId]: false });
   }
 
   private clearA2UIState() {
@@ -525,6 +603,7 @@ export class ChatService {
   private updateMessageFromEvents(msg: Message) {
     let content = '';
     const artifactsMap = new Map<string, LocalArtifact>();
+    const surfaceIds = new Set<string>();
 
     for (const event of msg.events) {
       if (event.kind === 'message') {
@@ -536,7 +615,7 @@ export class ChatService {
           if (!localArt) {
             localArt = {
               id: artId,
-              name: event.artifact.name || 'Artifact',
+              name: event.artifact.name || 'Document',
               description: event.artifact.description,
               parts: [],
               content: ''
@@ -550,17 +629,54 @@ export class ChatService {
           }
         }
       } else if (event.kind === 'status-update') {
+        if (event.status?.state === 'auth-required') {
+          msg.authRequired = true;
+        } else if (event.status?.state) {
+          msg.authRequired = false;
+        }
+
         if (event.status?.message?.parts && event.status.state !== 'submitted') {
           content = this.renderParts(event.status.message.parts, content, true);
         }
       }
+
+      // Check all nested parts for A2UI 'beginRendering' commands to track surface ownership
+      const checkA2UIParts = (parts?: Part[]) => {
+        if (!parts) return;
+        for (const part of parts) {
+          if (part.kind === 'data' && part.data && 'beginRendering' in part.data) {
+            const data = part.data as any;
+            if (data.beginRendering.surfaceId) {
+              surfaceIds.add(data.beginRendering.surfaceId);
+            }
+          }
+        }
+      }
+
+      if (event.kind === 'message') checkA2UIParts(event.parts);
+      if (event.kind === 'task' && event.history) event.history.forEach(h => checkA2UIParts(h.parts));
+      if (event.kind === 'artifact-update' && event.artifact) checkA2UIParts(event.artifact.parts);
     }
 
+    msg.surfaceIds = Array.from(surfaceIds);
+
+    msg.content = content;
     msg.artifacts = Array.from(artifactsMap.values());
+
+    const finalArtifacts: LocalArtifact[] = [];
     for (const art of msg.artifacts) {
       art.content = this.renderParts(art.parts, '', true);
+
+      // Deduplicate mirrored content: prioritize rendering standard text, suppress the identical artifact card
+      if (content.trim() === art.content.trim()) {
+        continue; // Exclude the artifact entirely as it is perfectly matched in body
+      } else if (art.content.trim() && content.includes(art.content.trim())) {
+        continue; // Exclude if main message already wraps the exact content of artifact
+      }
+      finalArtifacts.push(art);
     }
-    msg.content = content;
+
+    msg.artifacts = finalArtifacts;
   }
 
   private updateMessageContentFromParts(msg: Message, parts: Part[]) {
@@ -617,6 +733,7 @@ export class ChatService {
   async sendMessage(content: string, files: File[] = []) {
     const conv = this.currentConversation();
     if (!conv) return;
+    const conversationId = conv.id;
 
     const agent = this.agents().find(a => a.id === conv.agentId);
     if (!agent) return;
@@ -665,7 +782,27 @@ export class ChatService {
     this.conversations.update(c => c.map(c => c.id === conv.id ? { ...c, updatedAt: Date.now() } : c));
     this.saveConversations();
 
-    this.isTyping.update(state => ({ ...state, [conv.id]: true }));
+    const agentMsg: Message = {
+      id: crypto.randomUUID(),
+      role: 'agent',
+      content: '',
+      artifacts: [],
+      timestamp: Date.now(),
+      events: []
+    };
+
+    this.messages.update(msgs => {
+      const convMsgs = msgs[conv.id] || [];
+      return { ...msgs, [conv.id]: [...convMsgs, agentMsg] };
+    });
+    this.saveMessages();
+
+    const currentIsTyping = this.isTyping();
+    this.isTyping.set({ ...currentIsTyping, [conversationId]: true });
+
+    const abortController = new AbortController();
+    this.activeTaskAbortControllers.set(conversationId, abortController);
+    this.activeTaskIds.delete(conversationId);
 
     try {
       const factory = new ClientFactory({
@@ -675,7 +812,7 @@ export class ChatService {
         ],
         cardResolver: new DefaultAgentCardResolver({ fetchImpl: proxyFetch })
       });
-      let client;
+      let client: Client;
 
       if (agent.card) {
         client = await factory.createFromAgentCard(agent.card);
@@ -702,51 +839,46 @@ export class ChatService {
               ],
             },
           },
-        },
+        }
       };
 
-      const agentMsg: Message = {
-        id: crypto.randomUUID(),
-        role: 'agent',
-        content: '',
-        artifacts: [],
-        timestamp: Date.now(),
-        events: []
-      };
+      for await (const event of client.sendMessageStream(sendParams, { signal: abortController.signal })) {
+        if (event.kind === 'task' && (event as any).task?.id) {
+          this.activeTaskIds.set(conversationId, (event as any).task.id);
+        }
 
-      this.messages.update(msgs => {
-        const convMsgs = msgs[conv.id] || [];
-        return { ...msgs, [conv.id]: [...convMsgs, agentMsg] };
-      });
-      this.saveMessages();
-
-      for await (const response of client.sendMessageStream(sendParams)) {
         // Store the raw event
-        agentMsg.events.push(response);
+        agentMsg.events.push(event);
 
         // Update content/UI locally
-        this.addOrUpdateMessageFromEvent(conv.id, response);
+        this.addOrUpdateMessageFromEvent(conv.id, event);
       }
       this.saveMessages();
 
     } catch (err: any) {
-      console.error('Failed to send message', err);
-    // Add error message to chat
-      const errorMsg: Message = {
-        id: crypto.randomUUID(),
-        role: 'agent',
-        content: `Error: Failed to send message. ${err.message || ''}`,
-        timestamp: Date.now(),
-        events: []
-      };
+      if (err.name === 'AbortError' || err.message?.includes('abort')) {
+        console.log(`Stream cancelled locally for conversation ${conversationId}`);
+      } else {
+        console.error('Failed to send message', err);
+        // Add error message to chat
+        const errorMsg: Message = {
+          id: crypto.randomUUID(),
+          role: 'agent',
+          content: `Error: Failed to send message. ${err.message || ''}`,
+          timestamp: Date.now(),
+          events: []
+        };
 
-      this.messages.update(msgs => {
-        const convMsgs = msgs[conv.id] || [];
-        return { ...msgs, [conv.id]: [...convMsgs, errorMsg] };
-      });
-      this.saveMessages();
+        this.messages.update(msgs => {
+          const convMsgs = msgs[conv.id] || [];
+          return { ...msgs, [conv.id]: [...convMsgs, errorMsg] };
+        });
+        this.saveMessages();
+      }
     } finally {
-      this.isTyping.update(state => ({ ...state, [conv.id]: false }));
+      this.activeTaskAbortControllers.delete(conversationId);
+      const currentIsTypingEnd = this.isTyping();
+      this.isTyping.set({ ...currentIsTypingEnd, [conversationId]: false });
     }
   }
 
@@ -808,6 +940,22 @@ export class ChatService {
         }
       };
 
+      // Create a local Message representation of the User's UI interaction so it persists
+      const userMsg: Message = {
+        id: crypto.randomUUID(),
+        role: 'user',
+        content: '',
+        artifacts: [],
+        timestamp: Date.now(),
+        events: [{ kind: 'message', role: 'user', parts: sendParams.message.parts, timestamp: Date.now() } as any]
+      };
+
+      this.messages.update(msgs => {
+        const convMsgs = msgs[conv.id] || [];
+        return { ...msgs, [conv.id]: [...convMsgs, userMsg] };
+      });
+      this.saveMessages();
+
       for await (const response of client.sendMessageStream(sendParams)) {
         if (response.kind === 'message') {
           processResponseParts(response.parts);
@@ -826,9 +974,15 @@ export class ChatService {
             processResponseParts(response.status.message.parts);
           }
         }
+
+        // Delegate the raw event directly to the conversation UI and IndexedDB
+        this.addOrUpdateMessageFromEvent(conv.id, response);
       }
 
-      this.processor.processMessages(messages);
+      this.saveMessages();
+
+      // We omit manual this.processor.processMessages(messages)
+      // because addOrUpdateMessageFromEvent already seamlessly propagates events upstream!
       return messages;
     } catch (err) {
       console.error('Failed to send A2UI event', err);
