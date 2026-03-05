@@ -48,7 +48,7 @@ At first, you need to create a Firebase project:
 
    It looks like this:
 
-   ```json
+   ```javascript
    const firebaseConfig = {
      apiKey: "YOUR_API_KEY",
      authDomain: "YOUR_AUTH_DOMAIN",
