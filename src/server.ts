@@ -67,7 +67,7 @@ app.get('/api/firebase-config', (req, res) => {
   });
 });
 
-app.use('/api/proxy', express.json(), async (req, res) => {
+app.use('/api/proxy', express.json({ limit: '10mb' }), async (req, res) => {
   const targetUrl = req.query['url'] as string;
   if (!targetUrl) {
     res.status(400).send('Missing url parameter');

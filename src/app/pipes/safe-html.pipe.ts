@@ -1,4 +1,5 @@
 import { Pipe, PipeTransform, inject } from '@angular/core';
+import DOMPurify from 'dompurify';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 
 @Pipe({
@@ -10,6 +11,7 @@ export class SafeHtmlPipe implements PipeTransform {
 
   transform(value: string | undefined): SafeHtml {
     if (!value) return '';
-    return this.sanitizer.bypassSecurityTrustHtml(value);
+    const cleanHtml = DOMPurify.sanitize(value, { ADD_TAGS: ['video', 'audio', 'source'] });
+    return this.sanitizer.bypassSecurityTrustHtml(cleanHtml);
   }
 }

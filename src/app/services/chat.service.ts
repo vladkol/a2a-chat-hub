@@ -1,5 +1,6 @@
 import { Injectable, signal, inject } from '@angular/core';
 import { ClientFactory, JsonRpcTransportFactory, RestTransportFactory, DefaultAgentCardResolver } from '@a2a-js/sdk/client';
+import { get as idbGet, set as idbSet } from 'idb-keyval';
 import { MessageSendParams, Part, AgentCard, Message as SdkMessage } from '@a2a-js/sdk';
 import { MessageProcessor } from '@a2ui/angular';
 import * as Types from '@a2ui/web_core/types/types';
@@ -10,7 +11,7 @@ export interface A2AStreamEventData {
   parts?: Part[];
   history?: SdkMessage[];
   artifacts?: { parts?: Part[] }[];
-  artifact?: { parts?: Part[] };
+  artifact?: { id?: string; artifactId?: string; name?: string; description?: string; parts?: Part[] };
   status?: { state: string; message?: { parts?: Part[] } };
   messageId?: string;
   append?: boolean;
@@ -25,6 +26,14 @@ export interface Agent {
   card?: AgentCard;
 }
 
+export interface LocalArtifact {
+  id: string;
+  name?: string;
+  description?: string;
+  parts: Part[];
+  content: string;
+}
+
 export interface Conversation {
   id: string;
   agentId: string;
@@ -36,7 +45,7 @@ export interface Message {
   id: string;
   role: 'user' | 'agent';
   content: string;
-  ui?: string; // HTML or UI payload
+  artifacts?: LocalArtifact[];
   timestamp: number;
   events: A2AStreamEventData[]; // Source of truth for replay
   messageId?: string; // ID from the server/SDK for deduplication
@@ -94,49 +103,70 @@ export class ChatService {
 
   }
 
-  private loadAgents() {
-    const stored = localStorage.getItem('a2a_agents');
-    if (stored) {
-      try {
-        this.agents.set(JSON.parse(stored));
-      } catch (e) {
-        console.error('Failed to parse agents', e);
+  private async loadAgents() {
+    try {
+      const stored = await idbGet('a2a_agents');
+      if (stored) {
+        this.agents.set(stored);
+      } else {
+        const legacy = localStorage.getItem('a2a_agents');
+        if (legacy) {
+          const parsed = JSON.parse(legacy);
+          this.agents.set(parsed);
+          this.saveAgents();
+        }
       }
+    } catch (e) {
+      console.error('Failed to load agents from IndexedDB', e);
     }
   }
 
   private saveAgents() {
-    localStorage.setItem('a2a_agents', JSON.stringify(this.agents()));
+    idbSet('a2a_agents', this.agents()).catch(e => console.error('Failed to save agents to IndexedDB', e));
   }
 
-  private loadConversations() {
-    const stored = localStorage.getItem('a2a_conversations');
-    if (stored) {
-      try {
-        this.conversations.set(JSON.parse(stored));
-      } catch (e) {
-        console.error('Failed to parse conversations', e);
+  private async loadConversations() {
+    try {
+      const stored = await idbGet('a2a_conversations');
+      if (stored) {
+        this.conversations.set(stored);
+      } else {
+        const legacy = localStorage.getItem('a2a_conversations');
+        if (legacy) {
+          const parsed = JSON.parse(legacy);
+          this.conversations.set(parsed);
+          this.saveConversations();
+        }
       }
+    } catch (e) {
+      console.error('Failed to load conversations from IndexedDB', e);
     }
   }
 
   private saveConversations() {
-    localStorage.setItem('a2a_conversations', JSON.stringify(this.conversations()));
+    idbSet('a2a_conversations', this.conversations()).catch(e => console.error('Failed to save conversations to IndexedDB', e));
   }
 
-  private loadMessages() {
-    const stored = localStorage.getItem('a2a_messages');
-    if (stored) {
-      try {
-        this.messages.set(JSON.parse(stored));
-      } catch (e) {
-        console.error('Failed to parse messages', e);
+  private async loadMessages() {
+    try {
+      const stored = await idbGet('a2a_messages');
+      if (stored) {
+        this.messages.set(stored);
+      } else {
+        const legacy = localStorage.getItem('a2a_messages');
+        if (legacy) {
+          const parsed = JSON.parse(legacy);
+          this.messages.set(parsed);
+          this.saveMessages();
+        }
       }
+    } catch (e) {
+      console.error('Failed to load messages from IndexedDB', e);
     }
   }
 
   private saveMessages() {
-    localStorage.setItem('a2a_messages', JSON.stringify(this.messages()));
+    idbSet('a2a_messages', this.messages()).catch(e => console.error('Failed to save messages to IndexedDB', e));
   }
 
   private normalizeUrl(url: string): string {
@@ -411,7 +441,7 @@ export class ChatService {
       id: crypto.randomUUID(),
       role: sdkMsg.role as 'user' | 'agent',
       content: '',
-      ui: '',
+      artifacts: [],
       timestamp: (sdkMsg as any).timestamp || Date.now(), // Approximate if not in sdkMsg
       events: [syntheticEvent], // Store synthetic event to avoid duplicating history
       messageId: sdkMsg.messageId
@@ -465,7 +495,7 @@ export class ChatService {
         id: crypto.randomUUID(),
         role: 'agent', // Event from server is usually agent (or system/tool)
         content: '',
-        ui: '',
+        artifacts: [],
         timestamp: Date.now(),
         events: [event],
         messageId: messageId
@@ -493,78 +523,78 @@ export class ChatService {
   }
 
   private updateMessageFromEvents(msg: Message) {
-    // Reconstruct content/ui from events
-    // This is tricky because events can be 'append' or 'replace'.
-    // We need to replay them in order.
     let content = '';
-    let ui = '';
+    const artifactsMap = new Map<string, LocalArtifact>();
 
     for (const event of msg.events) {
-      // Logic from sendMessage loop
-      let parts: Part[] | undefined;
-      let overwrite = false;
-
       if (event.kind === 'message') {
-        parts = event.parts;
-        overwrite = true;
-      } else if (event.kind === 'task') {
-        // ... (history logic complex)
-        // If task event is singular source, fine.
+        content = this.renderParts(event.parts || [], content, true);
       } else if (event.kind === 'artifact-update') {
-        if (event.artifact?.parts) {
-          parts = event.artifact.parts;
-          overwrite = !event.append;
+        if (event.artifact) {
+          const artId = event.artifact.id || event.artifact.artifactId || crypto.randomUUID();
+          let localArt = artifactsMap.get(artId);
+          if (!localArt) {
+            localArt = {
+              id: artId,
+              name: event.artifact.name || 'Artifact',
+              description: event.artifact.description,
+              parts: [],
+              content: ''
+            };
+            artifactsMap.set(artId, localArt);
+          }
+          if (event.append) {
+            localArt.parts.push(...(event.artifact.parts || []));
+          } else {
+            localArt.parts = event.artifact.parts || [];
+          }
         }
       } else if (event.kind === 'status-update') {
         if (event.status?.message?.parts && event.status.state !== 'submitted') {
-          parts = event.status.message.parts;
-          overwrite = true; // Status usually replaces the status message? Or appends?
-          // In previous code: `overwrite = true`.
-        }
-      }
-
-      if (parts) {
-        const res = this.renderParts(parts, overwrite ? '' : content, overwrite ? '' : ui);
-        if (overwrite) {
-          content = res.content;
-          ui = res.ui;
-        } else {
-          // Be careful not to double append if we iterate?
-          // `renderParts` appends to input.
-          content = res.content;
-          ui = res.ui;
+          content = this.renderParts(event.status.message.parts, content, true);
         }
       }
     }
+
+    msg.artifacts = Array.from(artifactsMap.values());
+    for (const art of msg.artifacts) {
+      art.content = this.renderParts(art.parts, '', true);
+    }
     msg.content = content;
-    msg.ui = ui;
   }
 
   private updateMessageContentFromParts(msg: Message, parts: Part[]) {
-    const res = this.renderParts(parts, msg.content, msg.ui || '');
-    msg.content = res.content;
-    msg.ui = res.ui;
+    msg.content = this.renderParts(parts, msg.content, false);
   }
 
-  private renderParts(parts: Part[], currentContent: string, currentUi: string) {
-    let c = currentContent;
-    let u = currentUi;
+  private renderParts(parts: Part[], currentContent: string, overwrite: boolean) {
+    let c = overwrite ? '' : currentContent;
     for (const part of parts) {
       if (part.kind === 'text') {
         c += part.text;
-      } else if (part.kind === 'data') {
-        if (part.data && part.data['ui']) {
-          u += part.data['ui'] as string;
-        } else if (part.data && part.data['html']) {
-          u += part.data['html'] as string;
+      } else if (part.kind === 'file' && part.file) {
+        let src = '';
+        if ('uri' in part.file && part.file.uri) {
+          src = part.file.uri;
+        } else if ('bytes' in part.file && part.file.bytes) {
+          src = `data:${part.file.mimeType || 'application/octet-stream'};base64,${part.file.bytes}`;
         }
-      } else if (part.kind === 'file') {
-        if (part.file && 'bytes' in part.file && part.file.mimeType === 'text/html') {
-          u += atob(part.file.bytes);
+
+        if (src) {
+          const mimeType = part.file.mimeType || '';
+          if (mimeType.startsWith('image/')) {
+            c += `\n\n![image](${src})\n\n`;
+          } else if (mimeType.startsWith('video/')) {
+            c += `\n\n<video controls class="max-w-full rounded-lg mt-2 mb-2" src="${src}"></video>\n\n`;
+          } else if (mimeType.startsWith('audio/')) {
+            c += `\n\n<audio controls class="w-full mt-2 mb-2" src="${src}"></audio>\n\n`;
+          } else {
+            c += `\n\n[📄 Download attached file](${src})\n\n`;
+          }
         }
       }
     }
-    return { content: c, ui: u };
+    return c;
   }
 
 
@@ -584,20 +614,47 @@ export class ChatService {
     }
   }
 
-  async sendMessage(content: string) {
+  async sendMessage(content: string, files: File[] = []) {
     const conv = this.currentConversation();
     if (!conv) return;
 
     const agent = this.agents().find(a => a.id === conv.agentId);
     if (!agent) return;
 
+    const fileParts: Part[] = await Promise.all(files.map(file => {
+      return new Promise<Part>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const base64String = (reader.result as string).split(',')[1];
+          resolve({
+            kind: 'file',
+            file: {
+              mimeType: file.type || 'application/octet-stream',
+              bytes: base64String,
+              name: file.name
+            }
+          });
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }));
+
+    const allParts: Part[] = [];
+    if (content.trim()) {
+      allParts.push({ kind: 'text', text: content });
+    }
+    allParts.push(...fileParts);
+
     const userMsg: Message = {
       id: crypto.randomUUID(),
       role: 'user',
-      content,
+      content: '',
+      artifacts: [],
       timestamp: Date.now(),
-      events: []
+      events: [{ kind: 'message', role: 'user', parts: allParts, timestamp: Date.now() } as any]
     };
+    this.updateMessageContentFromParts(userMsg, allParts);
 
     this.messages.update(msgs => {
       const convMsgs = msgs[conv.id] || [];
@@ -636,7 +693,7 @@ export class ChatService {
           messageId: crypto.randomUUID(),
           contextId: conv.id,
           role: 'user',
-          parts: [{ kind: 'text', text: content }],
+          parts: allParts,
           kind: 'message',
           metadata: {
             a2uiClientCapabilities: {
@@ -652,7 +709,7 @@ export class ChatService {
         id: crypto.randomUUID(),
         role: 'agent',
         content: '',
-        ui: undefined,
+        artifacts: [],
         timestamp: Date.now(),
         events: []
       };

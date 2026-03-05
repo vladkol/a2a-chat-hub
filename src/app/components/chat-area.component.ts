@@ -3,7 +3,6 @@ import { ChatService } from '../services/chat.service';
 import { UiService } from '../services/ui.service';
 import { MatIconModule } from '@angular/material/icon';
 import { FormsModule } from '@angular/forms';
-import { SafeHtmlPipe } from '../pipes/safe-html.pipe';
 import { MarkdownPipe } from '../pipes/markdown.pipe';
 import { CommonModule } from '@angular/common';
 import { Surface } from '@a2ui/angular';
@@ -12,7 +11,7 @@ import { ThemeService } from '../services/theme.service';
 @Component({
   selector: 'app-chat-area',
   standalone: true,
-  imports: [MatIconModule, FormsModule, SafeHtmlPipe, MarkdownPipe, CommonModule, Surface],
+  imports: [MatIconModule, FormsModule, MarkdownPipe, CommonModule, Surface],
   host: {
     'class': 'flex-1 flex flex-col min-w-0'
   },
@@ -44,9 +43,9 @@ import { ThemeService } from '../services/theme.service';
 
         <div class="flex-1 overflow-y-auto p-4 md:p-6 space-y-6" #scrollContainer>
           @for (msg of chat.messages()[chat.currentConversation()!.id] || []; track msg.id) {
-            @if (msg.content || msg.ui) {
+            @if (msg.content || msg.artifacts?.length) {
               <div [class]="msg.role === 'user' ? 'flex justify-end' : 'flex justify-start'">
-                <div class="max-w-[90%] md:max-w-[80%] flex space-x-3" [class.flex-row-reverse]="msg.role === 'user'">
+                <div class="max-w-[95%] md:max-w-[85%] flex space-x-3" [class.flex-row-reverse]="msg.role === 'user'">
 
                   @if (msg.role === 'agent') {
                     <div class="w-8 h-8 rounded-full bg-indigo-50 dark:bg-indigo-500/20 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shrink-0 mt-1">
@@ -54,20 +53,33 @@ import { ThemeService } from '../services/theme.service';
                     </div>
                   }
 
-                  <div [class]="msg.role === 'user' ? 'mr-3' : 'ml-3'">
-                    <div
-                      [class]="msg.role === 'user'
-                        ? 'bg-indigo-600 text-white rounded-2xl rounded-tr-sm px-4 py-2.5 shadow-sm'
-                        : 'bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-200 rounded-2xl rounded-tl-sm px-4 py-2.5 shadow-sm'">
-                      <div class="font-sans text-[15px] leading-relaxed markdown-content" [innerHTML]="msg.content | markdown"></div>
+                  <div [class]="msg.role === 'user' ? 'mr-3 items-end' : 'ml-3 items-start'" class="flex flex-col flex-1 min-w-0">
+                    @if (msg.content) {
+                      <div
+                        [class]="msg.role === 'user'
+                          ? 'bg-indigo-600 text-white rounded-2xl rounded-tr-sm px-4 py-2.5 shadow-sm self-end max-w-full'
+                          : 'bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-200 rounded-2xl rounded-tl-sm px-4 py-2.5 shadow-sm w-full md:w-auto'">
+                        <div class="font-sans text-[15px] leading-relaxed markdown-content" [innerHTML]="msg.content | markdown"></div>
+                      </div>
+                    }
 
-                      @if (msg.ui) {
-                        <div class="mt-4 border-t border-zinc-200 dark:border-zinc-700/50 pt-4 overflow-x-auto">
-                          <div [innerHTML]="msg.ui | safeHtml" class="a2ui-container"></div>
+                    @for (art of msg.artifacts || []; track art.id) {
+                      <div class="mt-3 w-full bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-sm text-zinc-900 dark:text-zinc-200 overflow-hidden">
+                        <div class="bg-zinc-50 dark:bg-zinc-900 px-3 py-2 border-b border-zinc-200 dark:border-zinc-800 flex items-center space-x-2">
+                          <mat-icon class="text-zinc-400 text-[18px] w-[18px] h-[18px]">insert_drive_file</mat-icon>
+                          <div class="flex-1 min-w-0">
+                            <div class="text-[13px] font-medium text-zinc-700 dark:text-zinc-300 truncate">{{ art.name || 'Artifact' }}</div>
+                            @if (art.description) {
+                              <div class="text-[11px] text-zinc-500 truncate">{{ art.description }}</div>
+                            }
+                          </div>
                         </div>
-                      }
-                    </div>
-                    <div class="text-[11px] text-zinc-500 mt-1.5 font-mono px-1" [class.text-right]="msg.role === 'user'">
+                        <div class="p-3 md:p-4 text-[14px] overflow-x-auto">
+                          <div class="markdown-content" [innerHTML]="art.content | markdown"></div>
+                        </div>
+                      </div>
+                    }
+                    <div class="text-[11px] text-zinc-500 mt-1.5 font-mono px-1 flex-shrink-0" [class.self-end]="msg.role === 'user'">
                       {{ msg.timestamp | date:'shortTime' }}
                     </div>
                   </div>
@@ -101,28 +113,51 @@ import { ThemeService } from '../services/theme.service';
         </div>
 
         <div class="p-4 bg-white dark:bg-zinc-900 border-t border-zinc-200 dark:border-zinc-800 shrink-0">
-          <div class="max-w-4xl mx-auto relative flex items-end gap-3">
-            @if (chat.isTyping()[chat.currentConversation()!.id] && !isMainBubbleVisible()) {
-               <div class="mb-3 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-200 rounded-2xl rounded-bl-sm px-3 py-2 shadow-sm flex items-center space-x-1.5 shrink-0">
-                  <div class="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-bounce" style="animation-delay: 0ms"></div>
-                  <div class="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-bounce" style="animation-delay: 150ms"></div>
-                  <div class="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-bounce" style="animation-delay: 300ms"></div>
-               </div>
+          <div class="max-w-4xl mx-auto flex flex-col gap-2">
+            @if (attachments().length > 0) {
+              <div class="flex flex-wrap gap-2 px-2">
+                @for (file of attachments(); track $index) {
+                  <div class="flex items-center gap-1.5 bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-2.5 py-1 text-sm text-zinc-700 dark:text-zinc-300">
+                    <mat-icon class="text-[16px] w-[16px] h-[16px] text-zinc-500">attach_file</mat-icon>
+                    <span class="truncate max-w-[200px]">{{ file.name }}</span>
+                    <button (click)="removeAttachment($index)" class="flex items-center justify-center p-0.5 hover:bg-zinc-200 dark:hover:bg-zinc-700 rounded-full text-zinc-500 transition-colors cursor-pointer">
+                      <mat-icon class="text-[14px] w-[14px] h-[14px]">close</mat-icon>
+                    </button>
+                  </div>
+                }
+              </div>
             }
-            <textarea
-              [(ngModel)]="newMessage"
-              (keydown.enter)="handleEnter($event)"
-              placeholder="Message..."
-              class="flex-1 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-700 rounded-xl pl-4 pr-12 py-3 text-[15px] focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 resize-none min-h-[52px] max-h-32 shadow-sm transition-all text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-500"
-              rows="1"
-              #messageInput
-            ></textarea>
-            <button
-              (click)="sendMessage()"
-              [disabled]="!newMessage().trim() || chat.isTyping()[chat.currentConversation()!.id]"
-              class="absolute right-2 bottom-2 p-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-200 dark:disabled:bg-zinc-800 disabled:text-zinc-400 dark:disabled:text-zinc-600 text-white rounded-lg transition-colors flex items-center justify-center">
-              <mat-icon class="text-[20px] w-[20px] h-[20px]">send</mat-icon>
-            </button>
+            <div class="relative flex items-end gap-3 w-full">
+              @if (chat.isTyping()[chat.currentConversation()!.id] && !isMainBubbleVisible()) {
+                 <div class="mb-3 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-200 rounded-2xl rounded-bl-sm px-3 py-2 shadow-sm flex items-center space-x-1.5 shrink-0">
+                    <div class="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-bounce" style="animation-delay: 0ms"></div>
+                    <div class="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-bounce" style="animation-delay: 150ms"></div>
+                    <div class="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-bounce" style="animation-delay: 300ms"></div>
+                 </div>
+              }
+
+              <input type="file" multiple class="hidden" #fileInput (change)="onFilesSelected($event)">
+              <button
+                (click)="fileInput.click()"
+                class="absolute left-2 bottom-2 p-1.5 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors flex items-center justify-center cursor-pointer z-10 w-9 h-9">
+                <mat-icon class="text-[20px] w-[20px] h-[20px]">attach_file</mat-icon>
+              </button>
+
+              <textarea
+                [(ngModel)]="newMessage"
+                (keydown.enter)="handleEnter($event)"
+                placeholder="Message..."
+                class="flex-1 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-700 rounded-xl pl-12 pr-12 py-3 text-[15px] focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 resize-none min-h-[52px] max-h-32 shadow-sm transition-all text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-500"
+                rows="1"
+                #messageInput
+              ></textarea>
+              <button
+                (click)="sendMessage()"
+                [disabled]="(!newMessage().trim() && attachments().length === 0) || chat.isTyping()[chat.currentConversation()!.id]"
+                class="absolute right-2 bottom-2 p-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-200 dark:disabled:bg-zinc-800 disabled:text-zinc-400 dark:disabled:text-zinc-600 text-white rounded-lg transition-colors flex items-center justify-center z-10 w-9 h-9 cursor-pointer">
+                <mat-icon class="text-[20px] w-[20px] h-[20px]">send</mat-icon>
+              </button>
+            </div>
           </div>
           <div class="text-center mt-2 text-[11px] text-zinc-500 font-mono">
             A2A Protocol &bull; A2UI Supported
@@ -240,6 +275,7 @@ export class ChatAreaComponent {
   ui = inject(UiService);
   theme = inject(ThemeService);
   newMessage = signal('');
+  attachments = signal<File[]>([]);
 
   @ViewChild('scrollContainer') private scrollContainer!: ElementRef;
 
@@ -317,10 +353,25 @@ export class ChatAreaComponent {
 
   sendMessage() {
     const content = this.newMessage().trim();
+    const files = this.attachments();
     const conv = this.chat.currentConversation();
-    if (content && conv && !this.chat.isTyping()[conv.id]) {
-      this.chat.sendMessage(content);
+    if ((content || files.length > 0) && conv && !this.chat.isTyping()[conv.id]) {
+      this.chat.sendMessage(content, files);
       this.newMessage.set('');
+      this.attachments.set([]);
     }
+  }
+
+  onFilesSelected(event: Event) {
+    const input = event.target as HTMLInputElement;
+    if (input.files) {
+      const newFiles = Array.from(input.files);
+      this.attachments.update(files => [...files, ...newFiles]);
+      input.value = ''; // Reset input to allow selecting same file again
+    }
+  }
+
+  removeAttachment(index: number) {
+    this.attachments.update(files => files.filter((_, i) => i !== index));
   }
 }
