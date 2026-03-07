@@ -82,7 +82,7 @@ You deploy the app to Cloud Run with Authentication or without it. If you would 
 
 **Deployment without Authentication**:
 
-If Firebase is not used, Cloud Run deployment strictly requires the `GOOGLE_CLOUD_REGION` environment variable to be defined manually in your `.env` file for proper routing.
+If Firebase is not used, Cloud Run deployment strictly requires the `GOOGLE_CLOUD_PROJECT` environment variable to be defined manually in your `.env` file for proper routing.
 
 **Deployment Command**:
 
