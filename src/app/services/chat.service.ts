@@ -6,6 +6,9 @@ import { MessageSendParams, Part, AgentCard, Message as SdkMessage } from '@a2a-
 import { MessageProcessor } from '@a2ui/angular';
 import * as Types from '@a2ui/web_core/types/types';
 import { getAuth } from 'firebase/auth';
+import { FirebaseService } from './firebase.service';
+import { UiService } from './ui.service';
+import { firstValueFrom, Subject } from 'rxjs';
 
 export interface A2AStreamEventData {
   kind: 'message' | 'task' | 'artifact-update' | 'status-update' | 'progress-update' | 'ping';
@@ -83,12 +86,15 @@ export class ChatService {
   public agents = signal<Agent[]>([]);
   public conversations = signal<Conversation[]>([]);
   public currentConversation = signal<Conversation | null>(null);
-  public messages = signal<Record<string, Message[]>>({}); // Keyed by conversation.id
+   public messages = signal<Record<string, Message[]>>({}); // Keyed by conversation.id
   public isTyping = signal<Record<string, boolean>>({}); // Keyed by conversation.id
+  public consents = signal<Record<string, boolean>>({}); // Keyed by ${agentId}_${scope}
   private activeTaskIds = new Map<string, string>();
   private activeTaskAbortControllers = new Map<string, AbortController>();
   public processor = inject(MessageProcessor);
   private platformId = inject(PLATFORM_ID);
+  private firebase = inject(FirebaseService);
+  private ui = inject(UiService);
 
 
   constructor() {
@@ -96,6 +102,7 @@ export class ChatService {
     this.loadDefaultAgents();
     this.loadConversations();
     this.loadMessages();
+    this.loadConsents();
 
     this.processor.events.subscribe(async (event) => {
       try {
@@ -198,8 +205,23 @@ export class ChatService {
     }
   }
 
-  private saveMessages() {
+   private saveMessages() {
     idbSet('a2a_messages', this.messages()).catch(e => console.error('Failed to save messages to IndexedDB', e));
+  }
+
+  private async loadConsents() {
+    try {
+      const stored = await idbGet('a2a_consents');
+      if (stored) {
+        this.consents.set(stored);
+      }
+    } catch (e) {
+      console.error('Failed to load consents from IndexedDB', e);
+    }
+  }
+
+  private saveConsents() {
+    idbSet('a2a_consents', this.consents()).catch(e => console.error('Failed to save consents to IndexedDB', e));
   }
 
   private normalizeUrl(url: string): string {
@@ -213,8 +235,24 @@ export class ChatService {
     try {
       const normalizedAddress = this.normalizeUrl(address);
       const path = normalizedAddress.endsWith('.json') ? '' : undefined;
-      const resolver = new DefaultAgentCardResolver({ fetchImpl: proxyFetch });
-      const card = await resolver.resolve(normalizedAddress, path);
+
+      let card: AgentCard;
+      const resolverNoAuth = new DefaultAgentCardResolver({
+        fetchImpl: (input, init) => {
+          const newInit = { ...init };
+          newInit.headers = new Headers(newInit.headers);
+          newInit.headers.set('X-Skip-App-Auth', 'true');
+          return proxyFetch(input, newInit);
+        }
+      });
+
+      try {
+        card = await resolverNoAuth.resolve(normalizedAddress, path);
+      } catch (e) {
+        console.log('[A2A] Failed to fetch card without auth, retrying using App Identity Token...');
+        const resolverWithAuth = new DefaultAgentCardResolver({ fetchImpl: proxyFetch });
+        card = await resolverWithAuth.resolve(normalizedAddress, path);
+      }
 
       const newAgent: Agent = {
         id: crypto.randomUUID(),
@@ -230,6 +268,103 @@ export class ChatService {
       console.error('Failed to resolve agent card', error);
       throw error;
     }
+  }
+
+   private async getAgentClientFactory(agent: Agent) {
+    let agentAuthHeader: string | undefined;
+
+    if (agent.card?.security && agent.card?.securitySchemes) {
+      for (const secReq of agent.card.security) {
+        for (const [schemeName, scopes] of Object.entries(secReq)) {
+          const scheme = agent.card.securitySchemes[schemeName];
+          if (scheme && scheme.type === 'oauth2') {
+            // Check consent for each scope
+            const missingScopes = scopes.filter(s => !this.consents()[`${agent.id}_${s}`]);
+            if (missingScopes.length > 0) {
+              const consentSubject = new Subject<boolean>();
+              this.ui.tokenConsentData.set({
+                agentName: agent.name,
+                scopes: missingScopes,
+                resolve: (consent) => {
+                  if (consent) {
+                    const updatedConsents = { ...this.consents() };
+                    missingScopes.forEach(s => {
+                      updatedConsents[`${agent.id}_${s}`] = true;
+                    });
+                    this.consents.set(updatedConsents);
+                    this.saveConsents();
+                  }
+                  consentSubject.next(consent);
+                  consentSubject.complete();
+                }
+              });
+              this.ui.isTokenConsentModalOpen.set(true);
+              const consentGranted = await firstValueFrom(consentSubject);
+              if (!consentGranted) {
+                console.log(`[A2A] Consent denied for agent ${agent.name} scopes: ${missingScopes}`);
+                continue; // Move to next scheme or abort? 
+              }
+            }
+
+            const token = await this.firebase.getAgentAccessToken(scopes);
+            if (token) {
+              agentAuthHeader = `Bearer ${token}`;
+              break;
+            }
+          } else if (scheme && scheme.type === 'openIdConnect') {
+            const consentKey = `${agent.id}_openid`;
+            if (!this.consents()[consentKey]) {
+              const consentSubject = new Subject<boolean>();
+              this.ui.tokenConsentData.set({
+                agentName: agent.name,
+                scopes: ['OpenIdConnect Identity Token'],
+                resolve: (consent) => {
+                  if (consent) {
+                    const updatedConsents = { ...this.consents() };
+                    updatedConsents[consentKey] = true;
+                    this.consents.set(updatedConsents);
+                    this.saveConsents();
+                  }
+                  consentSubject.next(consent);
+                  consentSubject.complete();
+                }
+              });
+              this.ui.isTokenConsentModalOpen.set(true);
+              const consentGranted = await firstValueFrom(consentSubject);
+              if (!consentGranted) {
+                console.log(`[A2A] Consent denied for agent ${agent.name} identity token`);
+                continue;
+              }
+            }
+
+            const user = this.firebase.currentUser();
+            if (user) {
+              const idToken = await user.getIdToken(true);
+              agentAuthHeader = `Bearer ${idToken}`;
+              break;
+            }
+          }
+        }
+        if (agentAuthHeader) break;
+      }
+    }
+
+    const customProxyFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const newInit = { ...init };
+      newInit.headers = new Headers(newInit.headers);
+      if (agentAuthHeader) {
+        newInit.headers.set('X-Agent-Authorization', agentAuthHeader);
+      }
+      return proxyFetch(input, newInit);
+    };
+
+    return new ClientFactory({
+      transports: [
+        new JsonRpcTransportFactory({ fetchImpl: customProxyFetch }),
+        new RestTransportFactory({ fetchImpl: customProxyFetch })
+      ],
+      cardResolver: new DefaultAgentCardResolver({ fetchImpl: customProxyFetch })
+    });
   }
 
   removeAgent(id: string) {
@@ -310,13 +445,7 @@ export class ChatService {
       const agent = agents.find(a => a.id === conv?.agentId);
       if (agent) {
         try {
-          const factory = new ClientFactory({
-            transports: [
-              new JsonRpcTransportFactory({ fetchImpl: proxyFetch }),
-              new RestTransportFactory({ fetchImpl: proxyFetch })
-            ],
-            cardResolver: new DefaultAgentCardResolver({ fetchImpl: proxyFetch })
-          });
+          const factory = await this.getAgentClientFactory(agent);
           let client: Client;
 
           if (agent.card) {
@@ -441,13 +570,7 @@ export class ChatService {
     if (!agent) return;
 
     try {
-      const factory = new ClientFactory({
-        transports: [
-          new JsonRpcTransportFactory({ fetchImpl: proxyFetch }),
-          new RestTransportFactory({ fetchImpl: proxyFetch })
-        ],
-        cardResolver: new DefaultAgentCardResolver({ fetchImpl: proxyFetch })
-      });
+      const factory = await this.getAgentClientFactory(agent);
 
       let client;
       if (agent.card) {
@@ -805,13 +928,7 @@ export class ChatService {
     this.activeTaskIds.delete(conversationId);
 
     try {
-      const factory = new ClientFactory({
-        transports: [
-          new JsonRpcTransportFactory({ fetchImpl: proxyFetch }),
-          new RestTransportFactory({ fetchImpl: proxyFetch })
-        ],
-        cardResolver: new DefaultAgentCardResolver({ fetchImpl: proxyFetch })
-      });
+      const factory = await this.getAgentClientFactory(agent);
       let client: Client;
 
       if (agent.card) {
@@ -893,13 +1010,7 @@ export class ChatService {
 
     this.isTyping.update(state => ({ ...state, [conv.id]: true }));
     try {
-      const factory = new ClientFactory({
-        transports: [
-          new JsonRpcTransportFactory({ fetchImpl: proxyFetch }),
-          new RestTransportFactory({ fetchImpl: proxyFetch })
-        ],
-        cardResolver: new DefaultAgentCardResolver({ fetchImpl: proxyFetch })
-      });
+      const factory = await this.getAgentClientFactory(agent);
       let client;
       if (agent.card) {
         client = await factory.createFromAgentCard(agent.card);

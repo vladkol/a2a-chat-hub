@@ -2,13 +2,13 @@ import { ChangeDetectionStrategy, Component, inject, OnInit } from '@angular/cor
 import { LoginComponent } from './components/login.component';
 import { SidebarComponent } from './components/sidebar.component';
 import { ChatAreaComponent } from './components/chat-area.component';
-import { NewConversationModalComponent, ManageAgentsModalComponent } from './components/modals.component';
+import { NewConversationModalComponent, ManageAgentsModalComponent, TokenConsentModalComponent } from './components/modals.component';
 import { FirebaseService } from './services/firebase.service';
 
 @Component({
   changeDetection: ChangeDetectionStrategy.OnPush,
   selector: 'app-root',
-  imports: [LoginComponent, SidebarComponent, ChatAreaComponent, NewConversationModalComponent, ManageAgentsModalComponent],
+  imports: [LoginComponent, SidebarComponent, ChatAreaComponent, NewConversationModalComponent, ManageAgentsModalComponent, TokenConsentModalComponent],
   template: `
     @if (!firebase.isAuthEnabled() || firebase.currentUser()) {
       <div class="flex h-[100dvh] w-full overflow-hidden bg-zinc-950 font-sans relative">
@@ -16,6 +16,7 @@ import { FirebaseService } from './services/firebase.service';
         <app-chat-area></app-chat-area>
         <app-new-conversation-modal></app-new-conversation-modal>
         <app-manage-agents-modal></app-manage-agents-modal>
+        <app-token-consent-modal></app-token-consent-modal>
       </div>
     } @else {
       <app-login></app-login>

@@ -189,6 +189,159 @@ export class NewConversationModalComponent {
     }
   `
 })
+@Component({
+  selector: 'app-token-consent-modal',
+  standalone: true,
+  imports: [CommonModule, MatIconModule],
+  template: `
+    @if (ui.isTokenConsentModalOpen() && ui.tokenConsentData()) {
+      <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+        <div class="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden flex flex-col">
+          <div class="p-4 border-b border-zinc-800 flex items-center justify-between">
+            <h2 class="font-sans font-semibold text-lg text-zinc-100">Permission Request</h2>
+            <button (click)="deny()" class="p-1 hover:bg-zinc-800 rounded-lg text-zinc-400 transition-colors">
+              <mat-icon>close</mat-icon>
+            </button>
+          </div>
+
+          <div class="p-6">
+            <p class="text-zinc-300 text-sm mb-4">
+              The agent <strong class="text-indigo-400">{{ ui.tokenConsentData()?.agentName }}</strong> is requesting access to use your identity or access token.
+            </p>
+
+            @if (ui.tokenConsentData()?.scopes?.length) {
+              <div class="mb-4">
+                <span class="text-xs font-medium text-zinc-400 uppercase tracking-wider">Requested Scopes:</span>
+                <ul class="mt-1 space-y-1">
+                  @for (scope of ui.tokenConsentData()?.scopes; track scope) {
+                    <li class="p-2 bg-zinc-800/50 border border-zinc-800 rounded-lg text-xs text-zinc-300 font-mono break-all">
+                      {{ scope }}
+                    </li>
+                  }
+                </ul>
+              </div>
+            }
+
+            <p class="text-xs text-zinc-500 mb-6">
+              Allowing this will grant the agent permissions to act on your behalf according to the scopes listed above.
+            </p>
+
+            <div class="flex space-x-3">
+              <button
+                (click)="deny()"
+                class="flex-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-lg px-4 py-2 text-sm font-medium transition-colors">
+                Deny
+              </button>
+              <button
+                (click)="allow()"
+                class="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors">
+                Allow
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    }
+  `
+})
+export class TokenConsentModalComponent {
+  ui = inject(UiService);
+
+  allow() {
+    const data = this.ui.tokenConsentData();
+    if (data) {
+      data.resolve(true);
+    }
+    this.ui.isTokenConsentModalOpen.set(false);
+  }
+
+  deny() {
+    const data = this.ui.tokenConsentData();
+    if (data) {
+      data.resolve(false);
+    }
+    this.ui.isTokenConsentModalOpen.set(false);
+  }
+}
+
+@Component({
+  selector: 'app-manage-agents-modal',
+  standalone: true,
+  imports: [CommonModule, FormsModule, MatIconModule],
+  template: `
+    @if (ui.isManageAgentsModalOpen()) {
+      <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+        <div class="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh]">
+          <div class="p-4 border-b border-zinc-800 flex items-center justify-between shrink-0">
+            <h2 class="font-sans font-semibold text-lg text-zinc-100">Manage Agents</h2>
+            <button (click)="ui.isManageAgentsModalOpen.set(false)" class="p-1 hover:bg-zinc-800 rounded-lg text-zinc-400 transition-colors">
+              <mat-icon>close</mat-icon>
+            </button>
+          </div>
+
+          <div class="p-4 flex-1 overflow-y-auto">
+            <div class="mb-6">
+              <h3 class="text-sm font-medium text-zinc-400 mb-3 uppercase tracking-wider">Add New Agent</h3>
+              <div class="flex space-x-2">
+                <input
+                  [(ngModel)]="newAgentAddress"
+                  placeholder="Agent Address (URL)"
+                  class="flex-1 bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-indigo-500"
+                  (keydown.enter)="addAgent()"
+                />
+                <button
+                  (click)="addAgent()"
+                  [disabled]="!newAgentAddress() || isAdding()"
+                  class="bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-800 disabled:text-zinc-600 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors flex items-center">
+                  @if (isAdding()) {
+                    <mat-icon class="animate-spin text-[18px] w-[18px] h-[18px] mr-1">refresh</mat-icon>
+                  } @else {
+                    <mat-icon class="text-[18px] w-[18px] h-[18px] mr-1">add</mat-icon>
+                  }
+                  Add
+                </button>
+              </div>
+              @if (errorMessage()) {
+                <div class="mt-2 text-sm text-red-400">{{ errorMessage() }}</div>
+              }
+            </div>
+
+            <h3 class="text-sm font-medium text-zinc-400 mb-3 uppercase tracking-wider">Your Agents</h3>
+
+            <div class="space-y-2">
+              @for (agent of chat.agents(); track agent.id) {
+                <div class="flex items-center justify-between p-3 rounded-xl bg-zinc-800/50 border border-zinc-800">
+                  <div class="flex items-center space-x-3 overflow-hidden">
+                    <div class="w-10 h-10 rounded-full bg-indigo-500/20 flex items-center justify-center text-indigo-400 shrink-0">
+                      <mat-icon>smart_toy</mat-icon>
+                    </div>
+                    <div class="truncate">
+                      <div class="font-medium text-zinc-100 truncate">{{ agent.name }}</div>
+                      <div class="text-xs text-zinc-500 font-mono truncate">{{ agent.address }}</div>
+                    </div>
+                  </div>
+                  <button
+                    (click)="deleteAgent(agent)"
+                    class="p-2 rounded-lg transition-colors shrink-0 ml-2"
+                    [class]="confirmDeleteAgentId() === agent.id ? 'bg-red-500/20 text-red-500 hover:bg-red-500/30' : 'hover:bg-red-500/20 text-zinc-400 hover:text-red-400'"
+                    [title]="confirmDeleteAgentId() === agent.id ? 'Click again to confirm deletion (Warning: deletes all chats)' : 'Delete Agent'">
+                    <mat-icon>{{ confirmDeleteAgentId() === agent.id ? 'warning' : 'delete' }}</mat-icon>
+                  </button>
+                </div>
+              }
+
+              @if (chat.agents().length === 0) {
+                <div class="text-center p-8 text-zinc-500 text-sm border border-dashed border-zinc-800 rounded-xl">
+                  No agents added yet.
+                </div>
+              }
+            </div>
+          </div>
+        </div>
+      </div>
+    }
+  `
+})
 export class ManageAgentsModalComponent {
   ui = inject(UiService);
   chat = inject(ChatService);
